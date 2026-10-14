@@ -1,0 +1,124 @@
+# Compila el sitio y lo publica en GitHub Pages: en cada push a main (código), cada 2 horas (datos nuevos)
+# y a pedido.
+#
+# El código vive en este repo (main). Los titulares viven en OTRO repo público, mezquitelabs/titulares-data,
+# en su rama `data`, que el crawler REEMPLAZA con un solo commit en cada publicación (así el historial público
+# no acumula copias). Un push allá no puede disparar este workflow (otro repo), así que el build consulta: una
+# corrida programada compara el commit de la rama `data` con el del que se construyó el sitio en vivo (archivo
+# público data-version.txt) y termina en segundos si coinciden. "Run workflow" y los push a main siempre compilan.
+#
+# No necesita secretos: ambos repos son públicos y el deploy usa el token OIDC de Pages.
+#
+# Por defecto se publica en https://mezquitelabs.github.io/titulares-web/ (BASE_PATH=/titulares-web). Con dominio
+# propio, define las VARIABLES del repo SITE_URL y BASE_PATH (Settings > Secrets and variables > Actions > Variables).
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "23 */2 * * *"
+
+permissions:
+  contents: read
+
+env:
+  SITE_URL: ${{ vars.SITE_URL || 'https://mezquitelabs.github.io' }}
+  BASE_PATH: ${{ vars.BASE_PATH || '/titulares-web' }}
+  DATA_REPO: mezquitelabs/titulares-data
+
+jobs:
+  # Compuerta barata para corridas programadas: ¿hay datos que el sitio en vivo aún no tiene?
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.gate.outputs.build }}
+    steps:
+      - id: gate
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then echo "build=true" >> "$GITHUB_OUTPUT"; echo "No es corrida programada: se compila."; exit 0; fi
+          remote=$(git ls-remote --exit-code --heads "https://github.com/${DATA_REPO}.git" data | cut -f1) || {
+            echo "::error title=Falta la rama data::La rama 'data' no existe en ${DATA_REPO}. Publícala desde el crawler (python run.py --publish)."; exit 1; }
+          base="${BASE_PATH%/}/"
+          live=$(curl -fsS --max-time 20 "${SITE_URL%/}${base}data-version.txt" 2>/dev/null | tr -d '[:space:]' || true)
+          echo "rama data:  $remote"; echo "sitio vivo: ${live:-ninguno}"
+          if [ "$remote" = "$live" ]; then echo "build=false" >> "$GITHUB_OUTPUT"; echo "Sin datos nuevos: nada que publicar."
+          else echo "build=true" >> "$GITHUB_OUTPUT"; echo "Datos nuevos: se compila."; fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Código del sitio (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Comprobar que existe la rama de datos
+        run: |
+          if ! git ls-remote --exit-code --heads "https://github.com/${DATA_REPO}.git" data > /dev/null; then
+            echo "::error title=Falta la rama data::La rama 'data' no existe en ${DATA_REPO}: no hay titulares que compilar. Publícala desde el crawler (python run.py --publish)."
+            exit 1
+          fi
+
+      # El commit del crawler guarda sus archivos en src/data/, así que el repo de datos se baja al lado del código
+      # y se copian los archivos (bajarlo directo a src/data los anidaría como src/data/src/data).
+      - name: Datos (rama data del repo de datos)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.DATA_REPO }}
+          ref: data
+          fetch-depth: 1
+          path: _data
+          persist-credentials: false
+
+      - name: Poner los datos en src/data (falla si están vacíos)
+        run: |
+          if [ ! -f _data/src/data/meta.json ] || [ ! -f _data/src/data/titulares.json ]; then
+            echo "::error title=Rama data vacía::La rama 'data' de ${DATA_REPO} no tiene src/data/meta.json y src/data/titulares.json. Publica de nuevo desde el crawler."
+            exit 1
+          fi
+          mkdir -p src/data public
+          cp _data/src/data/meta.json _data/src/data/titulares.json src/data/
+          # Se publica en /data-version.txt para que la siguiente corrida sepa si el sitio en vivo está al día.
+          git -C _data rev-parse HEAD > public/data-version.txt
+          rm -rf _data
+          ls -l src/data
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Compilar y subir el sitio
+        uses: withastro/action@v3
+        with:
+          node-version: 20
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Un deploy a la vez y gana el MÁS NUEVO: uno atascado lo cancela el siguiente. Solo llegan aquí deploys reales,
+    # así que las compuertas sin cambios nunca cancelan nada.
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    # Solo este job puede publicar en Pages (y emitir el token OIDC que necesita deploy-pages).
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

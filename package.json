@@ -1,0 +1,25 @@
+{
+  "name": "titulares-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sitio estático de titulares de periódicos mexicanos por estado y municipio",
+  "engines": {
+    "node": ">=18.17.1"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test": "vitest run",
+    "typecheck": "astro check || tsc --noEmit"
+  },
+  "dependencies": {
+    "astro": "^4.16.19"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.130",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}

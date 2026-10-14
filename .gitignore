@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.astro/
+.env
+.env.*
+*.log
+*.bak*
+
+# Los titulares viven en la rama `data` del repo titulares-data (se copian a src/data en CI); ver README.
+src/data/*.json
+public/data-version.txt

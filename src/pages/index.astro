@@ -1,0 +1,244 @@
+---
+import { loadData } from '../lib/data';
+
+const { meta, articles, dropped } = loadData();
+
+const TZ = 'America/Mexico_City';
+const generated = new Date(meta.generated_at);
+
+const fmtTime = new Intl.DateTimeFormat('es-MX', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+const fmtDay = new Intl.DateTimeFormat('es-MX', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const fmtStamp = new Intl.DateTimeFormat('es-MX', { timeZone: TZ, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+
+const sorted = (values: Iterable<string>) => [...new Set(values)].sort((a, b) => a.localeCompare(b, 'es'));
+const dayRaw = fmtDay.format(generated);
+const day = dayRaw.charAt(0).toUpperCase() + dayRaw.slice(1);
+const states = sorted(articles.map((a) => a.state));
+const sources = sorted(articles.map((a) => a.source));
+// municipios agrupados por estado para el filtro dependiente
+const munisByState: Record<string, string[]> = {};
+for (const st of states) {
+  munisByState[st] = sorted(articles.filter((a) => a.state === st && a.municipality).map((a) => a.municipality!));
+}
+const sourceList = [...meta.sources].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+const data = { hours: meta.hours };
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Titulares MX</title>
+    <meta name="description" content="Titulares de periódicos mexicanos por estado y municipio" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23b4261f'/%3E%3Cpath d='M3 5h10M3 8h10M3 11h6' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <h1>Titulares MX</h1>
+        <p class="sub">
+          <span class="day">{day}</span> ·
+          actualizado {fmtStamp.format(generated)} ·
+          {articles.length.toLocaleString('es-MX')} titulares de las últimas {data.hours} h
+        </p>
+        <form class="controls" role="search" onsubmit="return false">
+          <input id="q" type="search" placeholder="Buscar en los titulares…" autocomplete="off" aria-label="Buscar" />
+          <select id="state" aria-label="Estado">
+            <option value="">Todos los estados</option>
+            {states.map((s) => <option value={s}>{s}</option>)}
+          </select>
+          <select id="muni" aria-label="Municipio" disabled>
+            <option value="">Todos los municipios</option>
+          </select>
+          <select id="source" aria-label="Medio">
+            <option value="">Todos los medios</option>
+            {sources.map((s) => <option value={s}>{s}</option>)}
+          </select>
+          <button type="button" id="reset" class="ghost">Limpiar</button>
+        </form>
+        <p id="count" class="count" aria-live="polite"></p>
+      </div>
+    </header>
+
+    <main class="wrap">
+      {articles.length === 0 && <p class="empty">Aún no hay titulares.</p>}
+      <ul id="list" class="list">
+        {articles.map((a) => (
+          <li
+            data-state={a.state}
+            data-muni={a.municipality ?? ''}
+            data-source={a.source}
+          >
+            <time datetime={a.ts}>{fmtTime.format(new Date(a.ts))}</time>
+            <div>
+              <a href={a.url} target="_blank" rel="noopener noreferrer">{a.title}</a>
+              <span class="meta">
+                {a.source} · {a.municipality ? `${a.municipality}, ${a.state}` : a.state}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p id="none" class="empty" hidden>Ningún titular coincide con los filtros.</p>
+    </main>
+
+    <footer class="wrap foot">
+      <p>
+        Los titulares provienen de <strong>medios de terceros</strong>. Cada uno enlaza a su nota original; los títulos
+        pertenecen a sus medios y aquí no se reclama ningún derecho sobre ellos. Para pedir que se retire un contenido,
+        abre un <a href="https://github.com/mezquitelabs/titulares-web/issues" rel="noopener noreferrer">issue</a> con el enlace.
+      </p>
+      <details>
+        <summary>Medios incluidos ({sourceList.length})</summary>
+        <ul class="srcs">
+          {sourceList.map((s) => (
+            <li>{s.url ? <a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a> : s.name} · {s.municipality ? `${s.municipality}, ${s.state}` : s.state}</li>
+          ))}
+        </ul>
+      </details>
+    </footer>
+
+    <script is:inline define:vars={{ munisByState }}>
+      const $ = (id) => document.getElementById(id);
+      const q = $('q'), state = $('state'), muni = $('muni'), source = $('source');
+      const items = [...document.querySelectorAll('#list li')];
+      const norm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      // texto de búsqueda sin acentos ni mayúsculas (título, medio, estado, municipio)
+      const texts = items.map((li) => norm(li.textContent));
+
+      function fillMunis() {
+        const list = munisByState[state.value] || [];
+        const keep = muni.value;
+        muni.replaceChildren(new Option('Todos los municipios', ''), ...list.map((m) => new Option(m, m)));
+        muni.disabled = list.length === 0;
+        muni.value = list.includes(keep) ? keep : '';
+      }
+
+      function apply() {
+        const words = norm(q.value).split(/\s+/).filter(Boolean);
+        let shown = 0;
+        for (const [i, li] of items.entries()) {
+          const d = li.dataset;
+          const ok =
+            (!state.value || d.state === state.value) &&
+            (!muni.value || d.muni === muni.value) &&
+            (!source.value || d.source === source.value) &&
+            words.every((w) => texts[i].includes(w));
+          li.hidden = !ok;
+          if (ok) shown++;
+        }
+        $('count').textContent = `${shown.toLocaleString('es-MX')} de ${items.length.toLocaleString('es-MX')} titulares`;
+        $('none').hidden = shown > 0 || items.length === 0;
+        const p = new URLSearchParams();
+        if (q.value) p.set('q', q.value);
+        if (state.value) p.set('estado', state.value);
+        if (muni.value) p.set('municipio', muni.value);
+        if (source.value) p.set('medio', source.value);
+        history.replaceState(null, '', p.size ? '#' + p : location.pathname + location.search);
+      }
+
+      state.addEventListener('change', () => { fillMunis(); apply(); });
+      for (const el of [muni, source]) el.addEventListener('change', apply);
+      q.addEventListener('input', apply);
+      $('reset').addEventListener('click', () => {
+        q.value = state.value = source.value = '';
+        fillMunis();
+        apply();
+      });
+
+      // restaurar filtros desde el hash (#estado=Nuevo+León&q=agua)
+      const saved = new URLSearchParams(location.hash.slice(1));
+      q.value = saved.get('q') || '';
+      state.value = saved.get('estado') || '';
+      if (state.value !== (saved.get('estado') || '')) state.value = '';
+      fillMunis();
+      muni.value = saved.get('municipio') || '';
+      source.value = saved.get('medio') || '';
+      apply();
+    </script>
+
+    <style is:global>
+      :root {
+        --bg: #faf8f5;
+        --surface: #ffffff;
+        --ink: #1d1b19;
+        --muted: #6b655e;
+        --line: #e4dfd7;
+        --accent: #b4261f;
+        --accent-ink: #ffffff;
+        --focus: #1f5fbf;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #161513;
+          --surface: #1f1d1a;
+          --ink: #ece8e2;
+          --muted: #a29b92;
+          --line: #34312c;
+          --accent: #e5645c;
+          --accent-ink: #161513;
+          --focus: #7aa7ee;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      .wrap { max-width: 56rem; margin: 0 auto; padding: 0 16px; }
+      .top {
+        background: var(--bg);
+        border-bottom: 1px solid var(--line);
+        padding: 20px 0 12px;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+      }
+      h1 { margin: 0; font: 700 1.6rem/1.1 Georgia, 'Times New Roman', serif; letter-spacing: -0.01em; }
+      h1::before { content: ''; display: inline-block; width: 0.5em; height: 0.5em; background: var(--accent); border-radius: 2px; margin-right: 0.45em; vertical-align: 0.05em; }
+      .sub { margin: 6px 0 12px; color: var(--muted); font-size: 0.9rem; }
+      .day { color: var(--ink); }
+      .controls { display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 8px; }
+      .controls #q { grid-column: 1 / -1; }
+      input, select, button {
+        font: inherit; color: inherit; background: var(--surface);
+        border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 0;
+      }
+      select:disabled { opacity: 0.55; }
+      input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+        outline: 2px solid var(--focus); outline-offset: 2px;
+      }
+      button.ghost { cursor: pointer; }
+      button.ghost:hover { border-color: var(--accent); }
+      .count { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+      .list { list-style: none; margin: 0; padding: 0; }
+      .list li {
+        display: grid; grid-template-columns: 3.2rem 1fr; gap: 10px;
+        padding: 11px 0; border-bottom: 1px solid var(--line);
+      }
+      .list li[hidden] { display: none; }
+      time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.85rem; padding-top: 2px; }
+      .list li > div { min-width: 0; }
+      .list a { overflow-wrap: anywhere; color: var(--ink); text-decoration: none; font-weight: 600; }
+      .list a:hover { color: var(--accent); text-decoration: underline; }
+      .list a:visited { color: var(--muted); }
+      .meta { display: block; font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+      .empty { color: var(--muted); padding: 32px 0; text-align: center; }
+      code { background: var(--surface); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; }
+      .foot { color: var(--muted); font-size: 0.85rem; padding-top: 24px; padding-bottom: 40px; }
+      .foot a { color: var(--muted); }
+      .foot summary { cursor: pointer; }
+      .srcs { columns: 2 14rem; list-style: none; padding: 0; margin: 8px 0 0; }
+      .srcs li { margin: 2px 0; }
+      @media (max-width: 720px) {
+        .controls { grid-template-columns: 1fr 1fr; }
+        .top { position: static; }
+        h1 { font-size: 1.35rem; }
+      }
+    </style>
+  </body>
+</html>
