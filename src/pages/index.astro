@@ -1,5 +1,6 @@
 ---
 import { loadData } from '../lib/data';
+import { CATEGORIES } from '../lib/data-guard';
 
 const { meta, articles, dropped } = loadData();
 
@@ -22,6 +23,8 @@ for (const st of states) {
 }
 const sourceList = [...meta.sources].sort((a, b) => a.name.localeCompare(b.name, 'es'));
 const data = { hours: meta.hours };
+// categorías con titulares, en el orden del contrato, con su conteo total
+const catCounts = CATEGORIES.map((c) => ({ name: c, n: articles.filter((a) => a.category === c).length })).filter((c) => c.n > 0);
 ---
 
 <!doctype html>
@@ -58,6 +61,12 @@ const data = { hours: meta.hours };
           </select>
           <button type="button" id="reset" class="ghost">Limpiar</button>
         </form>
+        <div class="chips" id="chips" role="group" aria-label="Categoría">
+          <button type="button" class="chip" data-cat="" aria-pressed="true">Todas</button>
+          {catCounts.map((c) => (
+            <button type="button" class="chip" data-cat={c.name} aria-pressed="false">{c.name} <span class="n">{c.n.toLocaleString('es-MX')}</span></button>
+          ))}
+        </div>
         <p id="count" class="count" aria-live="polite"></p>
       </div>
     </header>
@@ -70,12 +79,13 @@ const data = { hours: meta.hours };
             data-state={a.state}
             data-muni={a.municipality ?? ''}
             data-source={a.source}
+            data-cat={a.category}
           >
             <time datetime={a.ts}>{fmtTime.format(new Date(a.ts))}</time>
             <div>
               <a href={a.url} target="_blank" rel="noopener noreferrer">{a.title}</a>
               <span class="meta">
-                {a.source} · {a.municipality ? `${a.municipality}, ${a.state}` : a.state}
+                {a.source} · {a.municipality ? `${a.municipality}, ${a.state}` : a.state} · {a.category}
               </span>
             </div>
           </li>
@@ -103,6 +113,12 @@ const data = { hours: meta.hours };
     <script is:inline define:vars={{ munisByState }}>
       const $ = (id) => document.getElementById(id);
       const q = $('q'), state = $('state'), muni = $('muni'), source = $('source');
+      const chips = [...document.querySelectorAll('#chips .chip')];
+      let cat = '';
+      function setCat(value) {
+        cat = value;
+        for (const c of chips) c.setAttribute('aria-pressed', String(c.dataset.cat === cat));
+      }
       const items = [...document.querySelectorAll('#list li')];
       const norm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
       // texto de búsqueda sin acentos ni mayúsculas (título, medio, estado, municipio)
@@ -125,6 +141,7 @@ const data = { hours: meta.hours };
             (!state.value || d.state === state.value) &&
             (!muni.value || d.muni === muni.value) &&
             (!source.value || d.source === source.value) &&
+            (!cat || d.cat === cat) &&
             words.every((w) => texts[i].includes(w));
           li.hidden = !ok;
           if (ok) shown++;
@@ -136,14 +153,17 @@ const data = { hours: meta.hours };
         if (state.value) p.set('estado', state.value);
         if (muni.value) p.set('municipio', muni.value);
         if (source.value) p.set('medio', source.value);
+        if (cat) p.set('categoria', cat);
         history.replaceState(null, '', p.size ? '#' + p : location.pathname + location.search);
       }
 
       state.addEventListener('change', () => { fillMunis(); apply(); });
       for (const el of [muni, source]) el.addEventListener('change', apply);
       q.addEventListener('input', apply);
+      for (const c of chips) c.addEventListener('click', () => { setCat(cat === c.dataset.cat ? '' : c.dataset.cat); apply(); });
       $('reset').addEventListener('click', () => {
         q.value = state.value = source.value = '';
+        setCat('');
         fillMunis();
         apply();
       });
@@ -156,6 +176,7 @@ const data = { hours: meta.hours };
       fillMunis();
       muni.value = saved.get('municipio') || '';
       source.value = saved.get('medio') || '';
+      setCat(chips.some((c) => c.dataset.cat === saved.get('categoria')) ? saved.get('categoria') : '');
       apply();
     </script>
 
@@ -214,6 +235,12 @@ const data = { hours: meta.hours };
       }
       button.ghost { cursor: pointer; }
       button.ghost:hover { border-color: var(--accent); }
+      .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+      .chip { border-radius: 999px; padding: 4px 11px; font-size: 0.85rem; cursor: pointer; }
+      .chip .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+      .chip:hover { border-color: var(--accent); }
+      .chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+      .chip[aria-pressed='true'] .n { color: inherit; opacity: 0.85; }
       .count { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
       .list { list-style: none; margin: 0; padding: 0; }
       .list li {

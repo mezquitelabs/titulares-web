@@ -1,7 +1,7 @@
 # titulares-web
 
-Sitio estático con los titulares del día de periódicos mexicanos, filtrable por estado, municipio y medio, con
-búsqueda de texto. Astro + TypeScript + CSS plano, sin framework de UI, sin CDN, sin rastreadores. Un script de unas 40
+Sitio estático con los titulares del día de periódicos mexicanos, filtrable por estado, municipio, medio y
+categoría, con búsqueda de texto. Astro + TypeScript + CSS plano, sin framework de UI, sin CDN, sin rastreadores. Un script de unas 40
 líneas hace los filtros; con JavaScript desactivado se ve la lista completa.
 
 **Solo lee JSON** (`src/data/meta.json` y `src/data/titulares.json`). No tiene acceso a nada más: el código, la base

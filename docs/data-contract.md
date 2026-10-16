@@ -1,4 +1,4 @@
-# Contrato de datos (`schema_version` 1)
+# Contrato de datos (`schema_version` 2)
 
 El sitio lee dos archivos JSON en `src/data/`. Los genera el crawler (`titulares-mx`, privado) y se publican en el repo
 `titulares-data` (rama `data`); nada más cruza entre los dos repos. Esta página es la interfaz: el crawler promete estos
@@ -12,7 +12,7 @@ src/data/
 
 ## Versiones
 
-`meta.json` trae un entero `schema_version`. Este sitio soporta **exactamente una** versión (hoy `1`) y el build
+`meta.json` trae un entero `schema_version`. Este sitio soporta **exactamente una** versión (hoy `2`) y el build
 **falla con un mensaje claro** si falta o es distinta.
 
 - Agregar un campo **opcional** mantiene la versión. Los consumidores ignoran campos que no conocen.
@@ -23,7 +23,7 @@ src/data/
 
 | Campo | Tipo | ¿Nulo? | Significado |
 |---|---|---|---|
-| `schema_version` | entero | no | `1` |
+| `schema_version` | entero | no | `2` |
 | `generated_at` | texto | no | ISO 8601 en **UTC** con offset (`2026-10-12T18:00:00+00:00`). |
 | `hours` | número | no | Ventana de titulares incluidos (horas hacia atrás desde `generated_at`). |
 | `sources` | lista | no | Medios incluidos. Cada uno: `name`, `url` (origen del sitio del medio, https), `state`, `municipality` (o `null`), `scope`. |
@@ -42,9 +42,15 @@ src/data/
 | `state` | texto | no | Estado de la República, o `Nacional`. |
 | `municipality` | texto | sí | Municipio, solo cuando el medio es de un municipio concreto. |
 | `scope` | texto | no | `nacional`, `estatal` o `local`. |
+| `category` | texto | no | Una de: `Política`, `Economía`, `Seguridad`, `Sociedad`, `Deportes`, `Espectáculos`, `Internacional`, `Opinión`, `Otros`. Asignada por el crawler con heurísticas (sección de la URL, etiquetas del feed y palabras del título); puede equivocarse, y lo que no encaja es `Otros`. |
 | `ts` | texto | no | Fecha ISO 8601 en UTC: la de publicación si el medio la da; si no, la de captura. |
 
 Orden: del más reciente al más antiguo. Los enlaces no traen parámetros de rastreo.
+
+## Historial
+
+- **2**: agrega `category` a cada titular (obligatoria).
+- **1**: versión inicial.
 
 ## Qué se publica y qué no
 
@@ -58,6 +64,7 @@ Los datos vienen de fuera de este repo, así que se validan antes de llegar a un
 
 - Cada enlace debe ser **https**, sin credenciales y de un host de `src/lib/allowed-hosts.json` (lista exacta, sin
   comodines ni subdominios).
+- `category` debe ser una de la lista; un titular con otra se descarta.
 - Textos con largo máximo; fechas válidas; sin repetidos por URL; máximo 20 000 titulares.
 - Un titular inválido se **descarta** (con un aviso en el log del build) en vez de tumbar el sitio. El build **falla** si
   cambia la versión del esquema, si no pasa ninguno o si se descartaría más del 30 %.

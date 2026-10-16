@@ -3,14 +3,14 @@ import { allowedHosts, DataContractError, linkProblem, validateData } from './da
 
 const hosts = allowedHosts({ hosts: ['medio.example', 'www.otro.example'] });
 const meta = {
-  schema_version: 1,
+  schema_version: 2,
   generated_at: '2026-10-12T18:00:00+00:00',
   hours: 24,
   sources: [{ name: 'Medio', url: 'https://medio.example/', state: 'Nuevo León', municipality: null, scope: 'estatal' }],
 };
 const art = (over: Record<string, unknown> = {}) => ({
   title: 'Un titular de prueba', url: 'https://medio.example/a', source: 'Medio', state: 'Nuevo León',
-  municipality: null, scope: 'estatal', ts: '2026-10-12T17:00:00+00:00', ...over,
+  municipality: null, scope: 'estatal', category: 'Sociedad', ts: '2026-10-12T17:00:00+00:00', ...over,
 });
 
 describe('linkProblem', () => {
@@ -40,13 +40,20 @@ describe('validateData', () => {
   });
 
   it('falla si cambia la versión del esquema', () => {
-    expect(() => validateData({ ...meta, schema_version: 2 }, { articles: [art()] }, hosts)).toThrow(DataContractError);
+    expect(() => validateData({ ...meta, schema_version: 1 }, { articles: [art()] }, hosts)).toThrow(DataContractError);
   });
 
   it('falla si se descartaría demasiado o todo', () => {
     const bad = Array.from({ length: 5 }, (_, i) => art({ url: `https://malo.example/${i}` }));
     expect(() => validateData(meta, { articles: [art(), ...bad] }, hosts)).toThrow(/más del 30%/);
     expect(() => validateData(meta, { articles: bad }, hosts)).toThrow(/ningún titular/);
+  });
+
+  it('descarta categorías desconocidas', () => {
+    const good = Array.from({ length: 8 }, (_, i) => art({ url: `https://medio.example/c${i}` }));
+    const r = validateData(meta, { articles: [...good, art({ url: 'https://medio.example/z', category: 'Inventada' })] }, hosts);
+    expect(r.articles).toHaveLength(8);
+    expect(r.dropped).toEqual({ 'categoría inválida': 1 });
   });
 
   it('acepta una lista vacía (aún sin titulares)', () => {

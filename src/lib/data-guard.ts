@@ -3,7 +3,8 @@
 // textos tienen un largo máximo. Un titular inválido se DESCARTA (no tumba el sitio por una nota mala);
 // el build falla solo si el contrato no se cumple (versión de esquema) o si queda casi nada.
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+export const CATEGORIES = ['Política', 'Economía', 'Seguridad', 'Sociedad', 'Deportes', 'Espectáculos', 'Internacional', 'Opinión', 'Otros'] as const;
 export const MAX_ARTICLES = 20000;
 /** Si se descarta más de esta fracción de los titulares, los datos están mal y el build se detiene. */
 export const MAX_DROP_RATIO = 0.3;
@@ -25,6 +26,7 @@ export interface Article {
   state: string;
   municipality: string | null;
   scope: string;
+  category: string;
   ts: string;
 }
 export interface SourceInfo {
@@ -78,6 +80,7 @@ function articleProblem(a: unknown, hosts: Set<string> | null): string | null {
   if (!isText(r.state, LIMITS.state)) return 'estado ausente o demasiado largo';
   if (!isOptText(r.municipality ?? null, LIMITS.municipality)) return 'municipio inválido';
   if (!isText(r.scope, LIMITS.scope)) return 'alcance inválido';
+  if (!(CATEGORIES as readonly string[]).includes(r.category as string)) return 'categoría inválida';
   if (!isDate(r.ts)) return 'fecha inválida';
   if (typeof r.url === 'string' && r.url.length > LIMITS.url) return 'enlace demasiado largo';
   return linkProblem(r.url, hosts);
@@ -127,7 +130,7 @@ export function validateData(metaRaw: unknown, payload: unknown, hosts: Set<stri
     const a = item as Article;
     if (seen.has(a.url)) continue;
     seen.add(a.url);
-    articles.push({ title: a.title, url: a.url, source: a.source, state: a.state, municipality: a.municipality ?? null, scope: a.scope, ts: a.ts });
+    articles.push({ title: a.title, url: a.url, source: a.source, state: a.state, municipality: a.municipality ?? null, scope: a.scope, category: a.category, ts: a.ts });
   }
 
   const droppedCount = Object.values(dropped).reduce((x, y) => x + y, 0);
